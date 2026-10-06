@@ -1,0 +1,20 @@
+[project]
+name = "cars-data-pipeline"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "jamlechluvonga", email = "jamlechluvonga@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "pandas>=3.0.6",
+    "psycopg[binary]>=3.3.6",
+]
+
+[project.scripts]
+cars-data-pipeline = "cars_data_pipeline:main"
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
