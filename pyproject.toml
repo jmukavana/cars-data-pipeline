@@ -8,8 +8,10 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "dbt-postgres>=1.11.0",
     "pandas>=3.0.6",
     "psycopg[binary]>=3.3.6",
+    "pyarrow>=25.0.1",
 ]
 
 [project.scripts]

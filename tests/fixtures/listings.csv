@@ -1,0 +1,4 @@
+listing_id,vehicle_id,make,model,model_year,listing_price,odometer_km,hybrid_flag,hybrid_type,seller_type,dealer_id,sale_status,sale_date,final_sale_price
+L001,V001,Toyota,Corolla,2020,15000,50000,0,,Private,,Sold,2026-01-15,12000
+L002,V002,Toyota,Prius,2021,20000,40000,1,,Authorized Dealer,D001,Sold,2026-01-20,
+L003,V003,Honda,Civic,2022,22000,30000,0,,Private,,Available,,0

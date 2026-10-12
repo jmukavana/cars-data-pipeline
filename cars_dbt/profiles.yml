@@ -1,0 +1,13 @@
+cars_dbt:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('PGHOST', env_var('DBT_HOST', '127.0.0.1')) }}"
+      port: "{{ env_var('PGPORT', '5432') | int }}"
+      user: "{{ env_var('PGUSER', 'postgres') }}"
+      password: "{{ env_var('DBT_ENV_SECRET_CARS_PASSWORD', env_var('PGPASSWORD', '')) }}"
+      dbname: "{{ env_var('PGDATABASE', 'cars_analytics') }}"
+      schema: dbt_cars
+      threads: 2
+      connect_timeout: 10

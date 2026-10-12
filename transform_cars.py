@@ -1,12 +1,13 @@
+import csv
 import logging
 from pathlib import Path
+import sys
 
+import numpy as np
 import pandas as pd
 
+from pipeline_config import INPUT_FILE, OUTPUT_FILE
 
-PROJECT_DIR = Path(__file__).resolve().parent
-INPUT_FILE = PROJECT_DIR / "data/raw/cars_dataset.csv"
-OUTPUT_FILE = PROJECT_DIR / "data/processed/cars_listings_clean.csv"
 
 COLUMNS = [
     "listing_id", "vehicle_id", "make", "model", "model_year",
@@ -18,7 +19,100 @@ COLUMNS = [
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
+    stream=sys.stdout,
 )
+
+
+def validate_header(path):
+    with path.open(newline="", encoding="utf-8-sig") as file:
+        header = next(csv.reader(file), [])
+
+    missing = sorted(set(COLUMNS) - set(header))
+    duplicates = sorted({
+        column for column in header
+        if header.count(column) > 1
+    })
+
+    if missing:
+        raise ValueError(f"Missing required columns: {missing}")
+
+    if duplicates:
+        raise ValueError(f"Duplicate column names: {duplicates}")
+
+
+def validate_values(df):
+    if df.empty:
+        raise ValueError("Data contract failed: empty batch")
+    errors = []
+
+    for column in ["listing_id", "vehicle_id", "make", "model"]:
+        values = df[column].astype("string").str.strip()
+        invalid = values.isna() | values.eq("").fillna(False)
+
+        if invalid.any():
+            errors.append(
+                f"{column}: {invalid.sum():,} missing or blank values"
+            )
+
+    numeric_rules = {
+        "model_year": {"whole": True, "minimum": None},
+        "odometer_km": {"whole": True, "minimum": 0},
+        "listing_price": {"whole": False, "minimum": None},
+        "hybrid_flag": {"whole": True, "minimum": None},
+    }
+
+    for column, rule in numeric_rules.items():
+        values = pd.to_numeric(df[column], errors="coerce")
+        finite = pd.Series(
+            np.isfinite(
+                values.to_numpy(dtype=float, na_value=np.nan)
+            ),
+            index=df.index,
+        )
+        invalid = ~finite
+
+        if rule["whole"]:
+            invalid |= values.mod(1).ne(0).fillna(True)
+
+        if rule["minimum"] is not None:
+            invalid |= values.lt(rule["minimum"]).fillna(True)
+
+        if column == "listing_price":
+            invalid |= values.le(0).fillna(True)
+
+        if column == "hybrid_flag":
+            invalid |= ~values.isin([0, 1])
+
+        if invalid.any():
+            errors.append(
+                f"{column}: {invalid.sum():,} invalid values"
+            )
+        else:
+            # Store the validated numeric representation.
+            df[column] = (
+                values.astype("int64")
+                if rule["whole"]
+                else values
+            )
+
+    allowed_statuses = {
+        "Available", "Pending", "Reserved", "Sold", "Withdrawn"
+    }
+
+    invalid_status = ~df["sale_status"].isin(allowed_statuses)
+
+    if invalid_status.any():
+        errors.append(
+            f"sale_status: {invalid_status.sum():,} "
+            "missing or unrecognized values"
+        )
+
+    if errors:
+        raise ValueError(
+            "Data contract failed:\n- " + "\n- ".join(errors)
+        )
+
+
 
 
 def transform(df):
@@ -62,7 +156,18 @@ def transform(df):
         )
 
     sold = clean["sale_status"].eq("Sold")
-    clean["completed_sale_price"] = clean["final_sale_price"].where(sold)
+    if (sold & clean["sale_date"].isna()).any():
+        raise ValueError("Sold listings must have a sale date")
+
+    prices = pd.to_numeric(clean["final_sale_price"], errors="coerce")
+    recorded = sold & clean["final_sale_price"].notna()
+    finite = pd.Series(
+        np.isfinite(prices.to_numpy(dtype=float, na_value=np.nan)),
+        index=clean.index,
+    )
+    if (recorded & (~finite | prices.le(0))).any():
+        raise ValueError("Recorded sale prices must be finite positive numbers")
+    clean["completed_sale_price"] = prices.where(sold)
     clean["sold_price_missing"] = (
         sold & clean["final_sale_price"].isna()
     )
@@ -80,7 +185,23 @@ def transform(df):
 
 def main():
     logging.info("Reading %s", INPUT_FILE.name)
-    df = pd.read_csv(INPUT_FILE, usecols=COLUMNS, low_memory=False)
+    validate_header(INPUT_FILE)
+    df = pd.read_csv(
+        INPUT_FILE,
+        usecols=COLUMNS,
+        encoding="utf-8-sig",
+        dtype={
+            "listing_id": "string",
+            "vehicle_id": "string",
+            "make": "string",
+            "model": "string",
+            "sale_status": "string",
+        },
+        low_memory=False,
+    )
+
+    validate_values(df)
+    logging.info("Data contract passed")
 
     clean = transform(df)
 
@@ -104,6 +225,23 @@ def main():
         temporary_file.replace(OUTPUT_FILE)
     finally:
         temporary_file.unlink(missing_ok=True)
+
+    parquet_file = OUTPUT_FILE.with_suffix(".parquet")
+    temporary_parquet = parquet_file.with_suffix(".parquet.tmp")
+
+    try:
+        clean.to_parquet(
+            temporary_parquet,
+            engine="pyarrow",
+            compression="snappy",
+            index=False,
+        )
+        temporary_parquet.replace(parquet_file)
+    finally:
+        temporary_parquet.unlink(missing_ok=True)
+
+    logging.info("Saved Parquet file: %s", parquet_file.name)
+
 
     logging.info("Saved %s rows to %s", f"{len(clean):,}", OUTPUT_FILE.name)
 

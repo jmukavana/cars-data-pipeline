@@ -1,16 +1,19 @@
 import logging
-
+import sys
 import psycopg
+
+from pipeline_config import connect_database
 
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
+    stream=sys.stdout,
 )
 
 
 def main():
-    with psycopg.connect("") as connection:
+    with connect_database() as connection:
         with connection.cursor() as cursor:
             # Keep all source reads consistent during this load.
             cursor.execute(
@@ -88,7 +91,24 @@ def main():
                     completed_sale_price = EXCLUDED.completed_sale_price,
                     odometer_km = EXCLUDED.odometer_km,
                     sale_date = EXCLUDED.sale_date
-            """)
+                WHERE ROW(
+                        fact_car_listing.vehicle_id,
+                        fact_car_listing.vehicle_model_key,
+                        fact_car_listing.status_key,
+                        fact_car_listing.listing_price,
+                        fact_car_listing.completed_sale_price,
+                        fact_car_listing.odometer_km,
+                        fact_car_listing.sale_date
+                    ) IS DISTINCT FROM ROW(
+                        EXCLUDED.vehicle_id,
+                        EXCLUDED.vehicle_model_key,
+                        EXCLUDED.status_key,
+                        EXCLUDED.listing_price,
+                        EXCLUDED.completed_sale_price,
+                        EXCLUDED.odometer_km,
+                        EXCLUDED.sale_date
+                    )
+                """)
             processed = cursor.rowcount
 
             cursor.execute("""

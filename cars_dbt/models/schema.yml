@@ -1,0 +1,81 @@
+version: 2
+# model documentation and deps
+models:
+  - name: stg_car_listings
+    description: >
+      Cleaned vehicle listings from the Python pipeline.
+      Each row represents one listing.
+    columns:
+      - name: listing_id
+        description: "Unique identifier for a vehicle listing."
+        data_tests:
+          - unique
+          - not_null
+
+      - name: make
+        description: "Vehicle manufacturer."
+
+      - name: sale_status
+        description: "Listing status, such as Sold or Available."
+
+      - name: sale_date
+        description: "Recorded sale date; absent for unsold listings."
+
+      - name: completed_sale_price
+        description: >
+          Recorded price for a completed sale.
+          Null for unsold listings and sold listings with missing prices.
+
+  - name: sales_by_make
+    description: >
+      Sales summary with one row per manufacturer that has sold listings.
+      Average sale price excludes missing prices.
+    columns:
+      - name: make
+        description: "Vehicle manufacturer."
+        data_tests:
+          - unique
+          - not_null
+
+      - name: sold_listings
+        description: "Number of listings marked Sold."
+
+      - name: known_sale_prices
+        description: "Sold listings with a recorded sale price."
+
+      - name: missing_sale_prices
+        description: "Sold listings without a recorded sale price."
+
+      - name: average_sale_price
+        description: >
+          Average recorded completed sale price, rounded to two decimals.
+          Sold listings with missing prices are excluded.
+
+  - name: monthly_sales
+    description: >
+      Monthly completed sales, with one row per sale month.
+      Sales value and average include only recorded sale prices.
+    columns:
+      - name: sale_month
+        description: "First calendar day of the sale month."
+        data_tests:
+          - unique
+          - not_null
+
+      - name: sold_listings
+        description: "Total listings marked Sold in the month."
+
+      - name: known_sale_prices
+        description: "Sold listings with a recorded price."
+
+      - name: missing_sale_prices
+        description: "Sold listings without a recorded price."
+
+      - name: recorded_sales_value
+        description: "Sum of known completed sale prices."
+
+      - name: average_sale_price
+        description: "Average of known completed sale prices."
+
+      - name: price_coverage_percent
+        description: "Percentage of sold listings with a recorded price."

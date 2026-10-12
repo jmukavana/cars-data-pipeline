@@ -1,0 +1,12 @@
+name: cars_dbt
+version: "1.0.0"
+config-version: 2
+
+profile: cars_dbt
+
+model-paths: ["models"]
+test-paths: ["tests"]
+
+models:
+  cars_dbt:
+    +materialized: view

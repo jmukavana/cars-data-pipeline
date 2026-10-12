@@ -5,8 +5,10 @@ from pathlib import Path
 
 import psycopg
 
+from pipeline_config import OUTPUT_FILE, connect_database
 
-INPUT_FILE = Path("data/processed/cars_listings_clean.csv")
+
+INPUT_FILE = OUTPUT_FILE
 
 
 def optional_decimal(value):
@@ -38,7 +40,7 @@ def payment_rows(reader):
 
 def main():
     # Reads connection settings from the PG* environment variables.
-    with psycopg.connect("") as connection:
+    with connect_database() as connection:
         with connection.cursor() as cursor:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS car_listings (
@@ -95,7 +97,31 @@ def main():
                     sale_status = EXCLUDED.sale_status,
                     sale_date = EXCLUDED.sale_date,
                     completed_sale_price = EXCLUDED.completed_sale_price
+                WHERE ROW(
+                    car_listings.vehicle_id,
+                    car_listings.make,
+                    car_listings.model,
+                    car_listings.model_year,
+                    car_listings.listing_price,
+                    car_listings.odometer_km,
+                    car_listings.sale_status,
+                    car_listings.sale_date,
+                    car_listings.completed_sale_price
+                ) IS DISTINCT FROM ROW(
+                    EXCLUDED.vehicle_id,
+                    EXCLUDED.make,
+                    EXCLUDED.model,
+                    EXCLUDED.model_year,
+                    EXCLUDED.listing_price,
+                    EXCLUDED.odometer_km,
+                    EXCLUDED.sale_status,
+                    EXCLUDED.sale_date,
+                    EXCLUDED.completed_sale_price
+                )
             """)
+
+            # Capture the upsert's affected rows before executing another query.
+            changed_rows = cursor.rowcount
 
             cursor.execute("SELECT COUNT(*) FROM car_listings")
             total = cursor.fetchone()[0]
@@ -103,6 +129,7 @@ def main():
     # Reaching here means the transaction committed successfully.
     print(f"Processed input rows: {loaded:,}")
     print(f"Database rows: {total:,}")
+    print(f"Source rows inserted or updated: {changed_rows:,}")
 
 
 if __name__ == "__main__":
