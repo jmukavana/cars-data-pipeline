@@ -1,11 +1,7 @@
 import csv
 from datetime import date
 from decimal import Decimal
-from pathlib import Path
-
-import psycopg
-
-from pipeline_config import OUTPUT_FILE, connect_database
+from .config import OUTPUT_FILE, connect_database
 
 
 INPUT_FILE = OUTPUT_FILE

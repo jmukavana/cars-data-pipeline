@@ -15,7 +15,7 @@ from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 ADMIN_DSN = os.environ.get("CARS_TEST_ADMIN_DSN")
 FIXTURE = ROOT / "tests/fixtures/listings.csv"
 
@@ -53,9 +53,10 @@ class PipelineIntegrationTests(unittest.TestCase):
     def drop_database(self):
         self.admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(self.database)))
 
-    def run_script(self, name, success=True):
+    def run_pipeline(self, success=True, setup_only=False):
         result = subprocess.run(
-            [sys.executable, str(ROOT / name)], cwd=ROOT, env=self.env,
+            [sys.executable, "-m", "cars_data_pipeline", *(["--setup-only"] if setup_only else [])],
+            cwd=self.data, env=self.env,
             text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180,
         )
         if success:
@@ -79,7 +80,7 @@ class PipelineIntegrationTests(unittest.TestCase):
             writer.writerows(rows)
 
     def test_fresh_setup_rerun_and_changed_listing_reach_reports_and_export(self):
-        self.run_script("run_pipeline.py")
+        self.run_pipeline()
         self.assertEqual(self.db.execute("SELECT count(*) FROM fact_car_listing").fetchone()[0], 3)
         self.assertEqual(self.db.execute(
             "SELECT sold_listings, known_sale_prices, recorded_sales_value FROM dbt_cars.monthly_sales"
@@ -88,15 +89,17 @@ class PipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(first["source_rows"], 3)
         self.assertEqual(len(pd.read_parquet(first["sales_export"])), 2)
         original = self.db.execute("SELECT listing_id, xmin::text FROM fact_car_listing ORDER BY 1").fetchall()
+        original_source = self.db.execute("SELECT listing_id, xmin::text FROM car_listings ORDER BY 1").fetchall()
 
-        self.run_script("run_pipeline.py")
+        self.run_pipeline()
         self.assertEqual(self.db.execute("SELECT listing_id, xmin::text FROM fact_car_listing ORDER BY 1").fetchall(), original)
+        self.assertEqual(self.db.execute("SELECT listing_id, xmin::text FROM car_listings ORDER BY 1").fetchall(), original_source)
         self.assertEqual(self.db.execute("SELECT count(*) FROM car_listings").fetchone()[0], 3)
         fingerprints = self.db.execute("SELECT count(DISTINCT source_sha256) FROM pipeline_batches").fetchone()[0]
         self.assertEqual(fingerprints, 1)
 
         self.change_source(final_sale_price="14000")
-        self.run_script("run_pipeline.py")
+        self.run_pipeline()
         self.assertEqual(self.db.execute(
             "SELECT completed_sale_price FROM fact_car_listing WHERE listing_id='L001'"
         ).fetchone()[0], 14000)
@@ -104,22 +107,55 @@ class PipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(self.db.execute("SELECT count(*) FROM pipeline_batches WHERE status='SUCCESS'").fetchone()[0], 3)
 
     def test_failed_database_load_rolls_back_and_rerun_recovers(self):
-        self.run_script("run_pipeline.py")
+        self.run_pipeline()
         previous = self.latest()
         self.db.execute("ALTER TABLE fact_car_listing ADD CONSTRAINT test_reject_price CHECK (completed_sale_price < 13000)")
-        self.change_source(final_sale_price="14000")
-        self.run_script("run_pipeline.py", success=False)
+        self.change_source(final_sale_price="14000", make="TestMake")
+        self.run_pipeline(success=False)
         self.assertEqual(self.db.execute("SELECT completed_sale_price FROM fact_car_listing WHERE listing_id='L001'").fetchone()[0], 12000)
         self.assertEqual(self.db.execute("SELECT status, failed_step FROM pipeline_batches ORDER BY started_at DESC LIMIT 1").fetchone(), ("FAILED", "Load warehouse tables"))
         self.assertEqual(self.latest(), previous)
+        self.assertEqual(self.db.execute("SELECT count(*) FROM dim_vehicle_model WHERE make='TestMake'").fetchone()[0], 0)
         self.db.execute("ALTER TABLE fact_car_listing DROP CONSTRAINT test_reject_price")
-        self.run_script("run_pipeline.py")
+        self.run_pipeline()
         self.assertEqual(self.db.execute("SELECT completed_sale_price FROM fact_car_listing WHERE listing_id='L001'").fetchone()[0], 14000)
 
     def test_invalid_batch_is_audited_without_loading(self):
         self.change_source(sale_date="")
-        self.run_script("run_pipeline.py", success=False)
+        self.run_pipeline(success=False)
         self.assertEqual(self.db.execute("SELECT status, failed_step FROM pipeline_batches").fetchone(), ("FAILED", "Transform cars data"))
         self.assertEqual(self.db.execute("SELECT count(*) FROM car_listings").fetchone()[0], 0)
         self.assertFalse((self.data / "output/latest.json").exists())
+
+    def test_missing_input_is_audited(self):
+        self.source.unlink()
+        self.run_pipeline(success=False)
+        self.assertEqual(self.db.execute("SELECT status, failed_step FROM pipeline_batches").fetchone(), ("FAILED", "Snapshot source"))
+
+    def test_batch_with_no_sales_produces_readable_empty_export(self):
+        with self.source.open(newline="") as file:
+            reader = csv.DictReader(file)
+            fields = reader.fieldnames
+            available = list(reader)[2]
+        with self.source.open("w", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=fields)
+            writer.writeheader()
+            writer.writerow(available)
+        self.run_pipeline()
+        self.assertEqual(self.db.execute("SELECT count(*) FROM dbt_cars.monthly_sales").fetchone()[0], 0)
+        exported = pd.read_parquet(self.latest()["sales_export"])
+        self.assertEqual(len(exported), 0)
+        self.assertIn("sale_year", exported.columns)
+
+    def test_active_runner_lock_rejects_overlapping_run(self):
+        from cars_data_pipeline.pipeline import PIPELINE_LOCK
+
+        self.run_pipeline(setup_only=True)
+        self.db.execute("SELECT pg_advisory_lock(%s)", (PIPELINE_LOCK,))
+        try:
+            result = self.run_pipeline(success=False)
+            self.assertIn("Another pipeline run is active", result.stdout)
+            self.assertEqual(self.db.execute("SELECT count(*) FROM pipeline_batches").fetchone()[0], 0)
+        finally:
+            self.db.execute("SELECT pg_advisory_unlock(%s)", (PIPELINE_LOCK,))
 

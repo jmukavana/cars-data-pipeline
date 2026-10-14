@@ -5,7 +5,7 @@ from pathlib import Path
 import psycopg
 
 
-PROJECT_DIR = Path(__file__).resolve().parent
+PROJECT_DIR = Path(os.environ.get("CARS_PROJECT_DIR", Path(__file__).resolve().parents[2])).resolve()
 DATA_DIR = Path(os.environ.get("CARS_DATA_DIR", PROJECT_DIR / "data")).resolve()
 INPUT_FILE = Path(os.environ.get("CARS_INPUT_FILE", DATA_DIR / "raw/cars_dataset.csv")).resolve()
 OUTPUT_FILE = DATA_DIR / "processed/cars_listings_clean.csv"

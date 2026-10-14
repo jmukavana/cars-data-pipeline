@@ -1,0 +1,35 @@
+name: cars-pipeline
+services:
+  postgres:
+    image: postgres:17.11
+    environment:
+      POSTGRES_DB: ${PGDATABASE:-cars_analytics}
+      POSTGRES_USER: ${PGUSER:-cars}
+      POSTGRES_PASSWORD: ${PGPASSWORD:?Set PGPASSWORD in .env}
+    ports:
+      - "127.0.0.1:${CARS_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - warehouse-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+  pipeline:
+    build: .
+    image: cars-data-pipeline:local
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${PGDATABASE:-cars_analytics}
+      PGUSER: ${PGUSER:-cars}
+      PGPASSWORD: ${PGPASSWORD:?Set PGPASSWORD in .env}
+      CARS_DATA_DIR: /app/data
+      CARS_INPUT_FILE: ${CARS_CONTAINER_INPUT:-/app/data/raw/cars_dataset.csv}
+    volumes:
+      - ./data:/app/data:z
+    depends_on:
+      postgres:
+        condition: service_healthy
+volumes:
+  warehouse-data:

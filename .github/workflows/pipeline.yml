@@ -1,0 +1,35 @@
+name: Pipeline acceptance checks
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_USER: cars_test
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cars_test -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.21"
+          enable-cache: true
+      - run: uv sync --frozen --python 3.13
+      - name: Unit and real PostgreSQL/dbt acceptance tests
+        env:
+          CARS_TEST_ADMIN_DSN: host=127.0.0.1 port=5432 user=cars_test password=test-only-password dbname=postgres
+        run: uv run --frozen python -m unittest discover -v

@@ -1,7 +1,7 @@
 [project]
 name = "cars-data-pipeline"
 version = "0.1.0"
-description = "Add your description here"
+description = "Validated car-listing batch pipeline with PostgreSQL, dbt, and Parquet outputs"
 readme = "README.md"
 authors = [
     { name = "jamlechluvonga", email = "jamlechluvonga@gmail.com" }
@@ -9,9 +9,10 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "dbt-postgres>=1.11.0",
+    "numpy>=2.5.3",
     "pandas>=3.0.6",
     "psycopg[binary]>=3.3.6",
-    "pyarrow>=25.0.1",
+    "pyarrow==26.0.0",
 ]
 
 [project.scripts]

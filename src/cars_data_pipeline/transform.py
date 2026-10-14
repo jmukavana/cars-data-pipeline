@@ -1,12 +1,11 @@
 import csv
 import logging
-from pathlib import Path
 import sys
 
 import numpy as np
 import pandas as pd
 
-from pipeline_config import INPUT_FILE, OUTPUT_FILE
+from .config import INPUT_FILE, OUTPUT_FILE
 
 
 COLUMNS = [
@@ -128,6 +127,9 @@ def transform(df):
         raise ValueError("Duplicate listing IDs")
 
     clean["listing_id"] = listing_ids
+    # CSV inference makes an entirely missing column float64; normalize before
+    # assigning text labels (pandas 3 rejects that implicit dtype conversion).
+    clean["hybrid_type"] = clean["hybrid_type"].astype("string")
 
     non_hybrid = clean["hybrid_flag"].eq(0)
     unknown_hybrid = (

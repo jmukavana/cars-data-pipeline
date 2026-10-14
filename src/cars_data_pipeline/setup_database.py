@@ -1,5 +1,5 @@
 """Bootstrap pipeline tables in an already-created PostgreSQL database."""
-from pipeline_config import PROJECT_DIR, connect_database
+from .config import PROJECT_DIR, connect_database
 
 
 def main():

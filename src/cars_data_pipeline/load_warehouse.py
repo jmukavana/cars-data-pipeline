@@ -1,8 +1,6 @@
 import logging
 import sys
-import psycopg
-
-from pipeline_config import connect_database
+from .config import connect_database
 
 
 logging.basicConfig(

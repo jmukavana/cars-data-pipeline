@@ -1,0 +1,50 @@
+id: cars_pipeline
+namespace: cars.analytics
+description: Run the validated cars batch pipeline and publish successful outputs.
+
+inputs:
+  - id: data_directory
+    type: STRING
+    description: Absolute data directory on the Docker or Podman daemon host.
+  - id: database_host
+    type: STRING
+    defaults: postgres
+  - id: database_port
+    type: STRING
+    defaults: "5432"
+  - id: database_name
+    type: STRING
+    defaults: cars_analytics
+  - id: database_user
+    type: STRING
+    defaults: cars
+
+tasks:
+  - id: run_pipeline
+    type: io.kestra.plugin.scripts.shell.Commands
+    containerImage: cars-data-pipeline:local
+    taskRunner:
+      type: io.kestra.plugin.scripts.runner.docker.Docker
+      pullPolicy: NEVER
+      networkMode: cars-pipeline_default
+      volumes:
+        - "{{ inputs.data_directory }}:/app/data:z"
+    env:
+      PGHOST: "{{ inputs.database_host }}"
+      PGPORT: "{{ inputs.database_port }}"
+      PGDATABASE: "{{ inputs.database_name }}"
+      PGUSER: "{{ inputs.database_user }}"
+      PGPASSWORD: "{{ secret('CARS_PG_PASSWORD') }}"
+      CARS_DATA_DIR: /app/data
+      CARS_INPUT_FILE: /app/data/raw/cars_dataset.csv
+    commands:
+      - cars-data-pipeline
+
+triggers:
+  - id: daily
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 6 * * *"
+    timezone: Africa/Nairobi
+    disabled: true
+    inputs:
+      data_directory: /replace/with/absolute/path/to/cars-data-pipeline/data

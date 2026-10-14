@@ -5,7 +5,7 @@ import unittest
 
 import pandas as pd
 
-from transform_cars import (
+from cars_data_pipeline.transform import (
     COLUMNS,
     validate_header,
     validate_values,

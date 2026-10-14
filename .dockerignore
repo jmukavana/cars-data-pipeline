@@ -1,0 +1,14 @@
+.git
+.venv
+.idea
+.agents
+.codex
+.aws
+data
+logs
+__pycache__
+**/__pycache__
+**/target
+**/logs
+.env
+**/.env*
