@@ -192,6 +192,12 @@ The suite creates randomly named `cars_test_*` databases, runs real subprocesses
 
 The saved flow is `orchestration/kestra/flows/cars_pipeline.yml`. It invokes the same pipeline command in the built image, so its behavior matches manual execution.
 
+On this rootless Podman setup, start Kestra with both Compose files so the override mounts the user-owned Podman socket:
+
+```bash
+podman compose -f orchestration/kestra/docker-compose.yml -f orchestration/kestra/docker-compose.override.yml -p orchestrastion-kestra up -d --wait
+```
+
 1. Build the image and start the warehouse using the root Compose commands above. Kestra's Docker task runner must use the same Docker/Podman daemon; the flow joins `cars-pipeline_default`.
 2. Configure Kestra's `CARS_PG_PASSWORD` secret to match the warehouse password. For the existing local Compose setup, add `SECRET_CARS_PG_PASSWORD=<base64-encoded-password>` to the ignored `orchestration/kestra/.env.cars-secret`, then recreate the Kestra service to pick it up. Do not commit that file.
 3. In Kestra, create/import the flow from the saved YAML. The existing Kestra Compose configuration already enables task-runner volume mounts.

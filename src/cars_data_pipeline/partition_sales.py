@@ -25,8 +25,37 @@ def main():
             export_dir, engine="pyarrow", partition_cols=["sale_year"],
             compression="snappy", index=False,
         )
-    if len(pd.read_parquet(export_dir)) != len(sold):
+
+    exported = pd.read_parquet(export_dir)
+
+    for label, frame in (
+        ("Source sold listings", sold),
+        ("Exported listings", exported),
+    ):
+        ids = frame["listing_id"]
+
+        if ids.isna().any():
+            raise ValueError(f"{label} contain null listing IDs")
+
+        if ids.duplicated().any():
+            raise ValueError(f"{label} contain duplicate listing IDs")
+
+    expected_ids = set(sold["listing_id"])
+    actual_ids = set(exported["listing_id"])
+
+    missing_ids = expected_ids - actual_ids
+    unexpected_ids = actual_ids - expected_ids
+
+    if missing_ids or unexpected_ids:
+        raise ValueError(
+            "Export listing IDs do not match: "
+            f"{len(missing_ids):,} missing, "
+            f"{len(unexpected_ids):,} unexpected"
+        )
+
+    if len(exported) != len(sold):
         raise ValueError("Export read-back count does not match")
+
     for year, expected in sold.groupby("sale_year").size().items():
         actual = pd.read_parquet(export_dir, filters=[("sale_year", "==", int(year))])
         if len(actual) != expected:

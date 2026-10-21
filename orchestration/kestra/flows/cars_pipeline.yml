@@ -1,20 +1,30 @@
 id: cars_pipeline
 namespace: cars.analytics
-description: Run the validated cars batch pipeline and publish successful outputs.
+description: Run the cars batch pipeline and capture cleaned outputs.
 
 inputs:
   - id: data_directory
     type: STRING
-    description: Absolute data directory on the Docker or Podman daemon host.
+    defaults: /home/mjamlech/DataProjects/Data_enginnering_practise/cars-data-pipeline/data
+    description: Absolute data directory on the Podman daemon host.
+
+  - id: database_network
+    type: STRING
+    defaults: cars-pipeline_default
+    description: Network containing the cars analytics PostgreSQL container.
+
   - id: database_host
     type: STRING
     defaults: postgres
+
   - id: database_port
     type: STRING
     defaults: "5432"
+
   - id: database_name
     type: STRING
     defaults: cars_analytics
+
   - id: database_user
     type: STRING
     defaults: cars
@@ -22,23 +32,47 @@ inputs:
 tasks:
   - id: run_pipeline
     type: io.kestra.plugin.scripts.shell.Commands
-    containerImage: cars-data-pipeline:local
+    containerImage: localhost/cars-data-pipeline:local
+
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
       pullPolicy: NEVER
-      networkMode: cars-pipeline_default
+      entryPoint: [""]
+      networkMode: "{{ inputs.database_network }}"
       volumes:
         - "{{ inputs.data_directory }}:/app/data:z"
+
     env:
       PGHOST: "{{ inputs.database_host }}"
       PGPORT: "{{ inputs.database_port }}"
       PGDATABASE: "{{ inputs.database_name }}"
       PGUSER: "{{ inputs.database_user }}"
       PGPASSWORD: "{{ secret('CARS_PG_PASSWORD') }}"
+      PGCONNECT_TIMEOUT: "10"
+      PYTHONUNBUFFERED: "1"
       CARS_DATA_DIR: /app/data
       CARS_INPUT_FILE: /app/data/raw/cars_dataset.csv
+      KESTRA_OUTPUT_DIR: "{{ workingDir }}/outputs"
+
     commands:
-      - cars-data-pipeline
+      - |
+        set -eu
+
+        test -r "$CARS_INPUT_FILE" || {
+          echo "Input CSV is missing or unreadable: $CARS_INPUT_FILE" >&2
+          exit 1
+        }
+
+        cd /app
+        cars-data-pipeline
+
+        mkdir -p "$KESTRA_OUTPUT_DIR"
+        cp /app/data/processed/cars_listings_clean.csv "$KESTRA_OUTPUT_DIR/"
+        cp /app/data/processed/cars_listings_clean.parquet "$KESTRA_OUTPUT_DIR/"
+
+    outputFiles:
+      - outputs/*.csv
+      - outputs/*.parquet
 
 triggers:
   - id: daily
@@ -46,5 +80,3 @@ triggers:
     cron: "0 6 * * *"
     timezone: Africa/Nairobi
     disabled: true
-    inputs:
-      data_directory: /replace/with/absolute/path/to/cars-data-pipeline/data
